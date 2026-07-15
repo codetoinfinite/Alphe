@@ -258,4 +258,228 @@
       cell.style.setProperty('--my', `${e.clientY - r.top}px`);
     });
   });
+
+  const finePointer = matchMedia('(pointer: fine)').matches;
+
+  /* ---------- scroll progress bar ---------- */
+  const progress = document.getElementById('scrollProgress');
+  if (progress) {
+    const setProgress = () => {
+      const doc = document.documentElement;
+      const max = doc.scrollHeight - doc.clientHeight;
+      progress.style.transform = `scaleX(${max > 0 ? doc.scrollTop / max : 0})`;
+    };
+    addEventListener('scroll', setProgress, { passive: true });
+    setProgress();
+  }
+
+  /* ---------- custom cursor: dot + easing ring ---------- */
+  const cDot = document.getElementById('cursorDot');
+  const cRing = document.getElementById('cursorRing');
+  if (cDot && cRing) {
+    if (finePointer && !reduced) {
+      let mx = -100, my = -100, rx = -100, ry = -100;
+      addEventListener('mousemove', (e) => {
+        mx = e.clientX; my = e.clientY;
+        cDot.style.left = mx + 'px';
+        cDot.style.top = my + 'px';
+      }, { passive: true });
+      const ringLoop = () => {
+        rx += (mx - rx) * 0.16;
+        ry += (my - ry) * 0.16;
+        cRing.style.left = rx + 'px';
+        cRing.style.top = ry + 'px';
+        requestAnimationFrame(ringLoop);
+      };
+      ringLoop();
+      document.querySelectorAll('a, button, .seg').forEach((el) => {
+        el.addEventListener('mouseenter', () => cRing.classList.add('on'));
+        el.addEventListener('mouseleave', () => cRing.classList.remove('on'));
+      });
+    } else {
+      cDot.remove();
+      cRing.remove();
+    }
+  }
+
+  /* ---------- magnetic buttons ---------- */
+  if (finePointer && !reduced) {
+    document.querySelectorAll('.btn').forEach((b) => {
+      b.addEventListener('mousemove', (e) => {
+        const r = b.getBoundingClientRect();
+        const x = (e.clientX - r.left - r.width / 2) * 0.22;
+        const y = (e.clientY - r.top - r.height / 2) * 0.3;
+        b.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      });
+      b.addEventListener('mouseleave', () => { b.style.transform = ''; });
+    });
+  }
+
+  /* ---------- click ripple on buttons ---------- */
+  document.querySelectorAll('.btn').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      if (reduced) return;
+      const r = b.getBoundingClientRect();
+      const d = Math.max(r.width, r.height);
+      const s = document.createElement('span');
+      s.className = 'ripple';
+      s.style.width = s.style.height = d + 'px';
+      s.style.left = (e.clientX - r.left - d / 2) + 'px';
+      s.style.top = (e.clientY - r.top - d / 2) + 'px';
+      b.appendChild(s);
+      setTimeout(() => s.remove(), 650);
+    });
+  });
+
+  /* ---------- hero particle field ---------- */
+  const pCanvas = document.getElementById('heroParticles');
+  if (pCanvas && !reduced) {
+    const ctx = pCanvas.getContext('2d');
+    let w = 0, h = 0, pts = [], running = false;
+
+    const resize = () => {
+      const dpr = Math.min(2, devicePixelRatio || 1);
+      w = pCanvas.clientWidth;
+      h = pCanvas.clientHeight;
+      pCanvas.width = w * dpr;
+      pCanvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    const seed = () => {
+      pts = Array.from({ length: 70 }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vy: 0.15 + Math.random() * 0.35,
+        r: 0.6 + Math.random() * 1.4,
+        a: 0.12 + Math.random() * 0.35,
+      }));
+    };
+    const frame = () => {
+      if (!running) return;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#51a2ff';
+      for (const p of pts) {
+        p.y -= p.vy;
+        if (p.y < -4) { p.y = h + 4; p.x = Math.random() * w; }
+        ctx.globalAlpha = p.a;
+        ctx.fillRect(p.x, p.y, p.r, p.r); // square dots — matches sharp aesthetic
+      }
+      requestAnimationFrame(frame);
+    };
+
+    resize();
+    seed();
+    addEventListener('resize', () => { resize(); seed(); });
+    new IntersectionObserver((es) => {
+      es.forEach((e) => {
+        const was = running;
+        running = e.isIntersecting;
+        if (running && !was) frame();
+      });
+    }).observe(pCanvas);
+  }
+
+  /* ---------- parallax layers ---------- */
+  const plxEls = [...document.querySelectorAll('[data-plx]')];
+  if (plxEls.length && !reduced) {
+    let ticking = false;
+    const updatePlx = () => {
+      ticking = false;
+      for (const el of plxEls) {
+        const f = parseFloat(el.dataset.plx);
+        const r = el.parentElement.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > innerHeight) continue;
+        const off = (r.top + r.height / 2 - innerHeight / 2) * f;
+        el.style.transform = `translate3d(0, ${off.toFixed(1)}px, 0)`;
+      }
+    };
+    addEventListener('scroll', () => {
+      if (!ticking) { ticking = true; requestAnimationFrame(updatePlx); }
+    }, { passive: true });
+    updatePlx();
+  }
+
+  /* ---------- problems: pinned horizontal scroll ---------- */
+  const hs = document.getElementById('problemsHscroll');
+  if (hs) {
+    const sticky = hs.querySelector('.hscroll-sticky');
+    const track = document.getElementById('problemsTrack');
+    const idxEl = document.getElementById('hscrollIdx');
+    const nPanels = track.children.length;
+    const isStatic = () => reduced || matchMedia('(max-width: 900px)').matches;
+
+    const size = () => {
+      if (isStatic()) {
+        hs.classList.add('static');
+        hs.style.height = '';
+        return;
+      }
+      hs.classList.remove('static');
+      const extra = Math.max(0, track.scrollWidth - sticky.clientWidth);
+      hs.style.height = (innerHeight + extra) + 'px';
+    };
+
+    const onHScroll = () => {
+      if (isStatic()) return;
+      const r = hs.getBoundingClientRect();
+      const range = r.height - innerHeight;
+      if (range <= 0) return;
+      const p = Math.min(1, Math.max(0, -r.top / range));
+      const max = Math.max(0, track.scrollWidth - sticky.clientWidth);
+      track.style.transform = `translate3d(${(-p * max).toFixed(1)}px, 0, 0)`;
+      if (idxEl) idxEl.textContent = String(Math.min(nPanels, 1 + Math.floor(p * nPanels))).padStart(2, '0');
+    };
+
+    addEventListener('resize', () => { size(); onHScroll(); });
+    addEventListener('scroll', onHScroll, { passive: true });
+    size();
+    onHScroll();
+  }
+
+  /* ---------- text scramble on badges ---------- */
+  if (!reduced) {
+    const GLYPHS = '!<>-_\\/[]{}=+*^?#';
+    const scramble = (el) => {
+      const original = el.textContent;
+      const len = original.length;
+      let f = 0;
+      const total = Math.max(14, len + 6);
+      const step = () => {
+        f++;
+        const settled = Math.floor((f / total) * len);
+        let out = '';
+        for (let i = 0; i < len; i++) {
+          if (i < settled || original[i] === ' ') out += original[i];
+          else out += GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+        }
+        el.textContent = out;
+        if (settled < len) requestAnimationFrame(step);
+        else el.textContent = original;
+      };
+      step();
+    };
+    const sio = new IntersectionObserver((es) => {
+      es.forEach((e) => {
+        if (e.isIntersecting) {
+          scramble(e.target);
+          sio.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.8 });
+    document.querySelectorAll('.badge .mono').forEach((el) => sio.observe(el));
+  }
+
+  /* ---------- 3D tilt cards ---------- */
+  if (finePointer && !reduced) {
+    document.querySelectorAll('.term, .member-mark, .routing-stage').forEach((el) => {
+      el.classList.add('tilt');
+      el.addEventListener('mousemove', (e) => {
+        const r = el.getBoundingClientRect();
+        const px = (e.clientX - r.left) / r.width - 0.5;
+        const py = (e.clientY - r.top) / r.height - 0.5;
+        el.style.transform = `perspective(800px) rotateX(${(-py * 5).toFixed(2)}deg) rotateY(${(px * 5).toFixed(2)}deg)`;
+      });
+      el.addEventListener('mouseleave', () => { el.style.transform = ''; });
+    });
+  }
 })();
